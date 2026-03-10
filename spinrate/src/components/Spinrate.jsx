@@ -1057,14 +1057,28 @@ function SearchPage({ onNavigate, userId }) {
 }
 
 // ─── NOTIFS ───────────────────────────────────────────────────────────────────
-function NotifsPage({ userId }) {
+function NotifsPage({ userId, onNavigate }) {
   const [notifs, setNotifs] = useState([]);
+  const [actors, setActors] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!userId) return;
-    supabase.from("notifications").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(30)
-      .then(({data})=>{ setNotifs(data||[]); setLoading(false); });
+    supabase.from("notifications").select("*").eq("user_id", userId)
+      .order("created_at", {ascending:false}).limit(40)
+      .then(async ({data}) => {
+        const ns = data||[];
+        setNotifs(ns);
+        // Load actor profiles
+        const actorIds = [...new Set(ns.map(n=>n.actor_id).filter(Boolean))];
+        if (actorIds.length > 0) {
+          const { data:profiles } = await supabase.from("profiles").select("id,username,display_name,avatar_url").in("id", actorIds);
+          const map = {};
+          (profiles||[]).forEach(p => map[p.id] = p);
+          setActors(map);
+        }
+        setLoading(false);
+      });
   }, [userId]);
 
   const markAllRead = async () => {
@@ -1072,33 +1086,54 @@ function NotifsPage({ userId }) {
     setNotifs(prev=>prev.map(n=>({...n,read:true})));
   };
 
-  const ICONS = { like:"❤️", follow:"👤", same_album:"💬", new_release:"🎵" };
-  const LABELS = { like:"Le dieron like a tu reseña", follow:"Alguien empezó a seguirte", same_album:"Un amigo reseñó el mismo álbum", new_release:"Nuevo lanzamiento disponible" };
+  const getNotifContent = (n) => {
+    const actor = actors[n.actor_id];
+    const name = actor ? (actor.display_name || `@${actor.username}`) : "Alguien";
+    switch(n.type) {
+      case "follow":  return { icon:"👤", text:`${name} empezó a seguirte`, accent:T.accent };
+      case "like":    return { icon:"❤️", text:`${name} le dio like a tu reseña`, accent:T.like };
+      case "comment": return { icon:"💬", text:`${name} comentó tu reseña${n.data?.comment ? `: "${n.data.comment}"` : ""}`, accent:"#4fc3f7" };
+      default:        return { icon:"🔔", text:n.type, accent:T.accent };
+    }
+  };
+
+  const unread = notifs.filter(n=>!n.read).length;
 
   return (
     <div style={{ minHeight:"100vh", background:T.bg, paddingBottom:80 }}>
       <div style={{ background:`${T.bg}ee`, backdropFilter:"blur(16px)", borderBottom:`1px solid ${T.border}`, position:"sticky", top:0, zIndex:50 }}>
         <div style={{ maxWidth:560, margin:"0 auto", padding:"16px 20px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div style={{ fontSize:20, fontWeight:800, color:T.text }}>Notificaciones</div>
-          {notifs.some(n=>!n.read) && <button onClick={markAllRead} style={{ background:"none", border:"none", color:T.accent, fontSize:13, fontWeight:600, cursor:"pointer" }}>Marcar leído</button>}
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ fontSize:20, fontWeight:800, color:T.text }}>Notificaciones</div>
+            {unread>0 && <div style={{ background:T.accent, borderRadius:20, padding:"2px 8px", fontSize:11, fontWeight:700, color:"#fff" }}>{unread}</div>}
+          </div>
+          {unread>0 && <button onClick={markAllRead} style={{ background:"none", border:"none", color:T.accent, fontSize:13, fontWeight:600, cursor:"pointer" }}>Marcar leído</button>}
         </div>
       </div>
-      <div style={{ maxWidth:560, margin:"8px auto 0", background:T.surface, borderRadius:16, overflow:"hidden", border:`1px solid ${T.border}` }}>
+      <div style={{ maxWidth:560, margin:"12px auto 0", padding:"0 12px", display:"flex", flexDirection:"column", gap:8 }}>
         {loading ? <Spinner/> : notifs.length===0 ? (
           <div style={{ textAlign:"center", padding:"60px 20px" }}>
             <div style={{ fontSize:36, marginBottom:10 }}>🔔</div>
             <div style={{ fontSize:14, color:T.textSub }}>Todo tranquilo por acá</div>
           </div>
-        ) : notifs.map(n=>(
-          <div key={n.id} style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 20px", background:n.read?T.surface:`${T.accent}08`, borderBottom:`1px solid ${T.border}`, position:"relative" }}>
-            {!n.read && <div style={{ position:"absolute", left:6, top:"50%", transform:"translateY(-50%)", width:6, height:6, borderRadius:"50%", background:T.accent }}/>}
-            <div style={{ fontSize:22 }}>{ICONS[n.type]||"🔔"}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:13, color:T.text }}>{LABELS[n.type]||n.type}</div>
-              <div style={{ fontSize:11, color:T.textMute, marginTop:2 }}>{timeAgo(n.created_at)}</div>
+        ) : notifs.map(n => {
+          const { icon, text, accent } = getNotifContent(n);
+          const actor = actors[n.actor_id];
+          return (
+            <div key={n.id} style={{ display:"flex", gap:12, alignItems:"center", padding:"14px 16px", background:n.read?T.surface:`${accent}10`, borderRadius:14, border:`1px solid ${n.read?T.border:accent+"33"}`, position:"relative", transition:"all 0.15s" }}>
+              {!n.read && <div style={{ position:"absolute", left:6, top:"50%", transform:"translateY(-50%)", width:6, height:6, borderRadius:"50%", background:accent }}/>}
+              {/* Avatar or icon */}
+              {actor
+                ? <Avatar src={actor.avatar_url} name={actor.display_name||actor.username} size={40}/>
+                : <div style={{ width:40, height:40, borderRadius:"50%", background:`${accent}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{icon}</div>
+              }
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, color:T.text, lineHeight:1.4 }}>{text}</div>
+                <div style={{ fontSize:11, color:T.textMute, marginTop:3 }}>{timeAgo(n.created_at)}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1853,7 +1888,7 @@ export default function Spinrate() {
       {page.name==="feed"     && <FeedPage onNavigate={navigate} onWrite={()=>setModal(true)} refreshKey={feedKey}/>}
       {page.name==="search"   && <SearchPage onNavigate={navigate} userId={user?.id}/>}
       {page.name==="lists"    && <ListsPage userId={user?.id} onNavigate={navigate}/>}
-      {page.name==="notifs"   && <NotifsPage userId={user?.id}/>}
+      {page.name==="notifs"   && <NotifsPage userId={user?.id} onNavigate={navigate}/>}
       {page.name==="profile"  && <ProfilePage onNavigate={navigate} userId={user?.id} onLogout={handleLogout}/>}
       {page.name==="album"    && <AlbumPage albumId={page.data} onNavigate={navigate} userId={user?.id}/>}
       {page.name==="list"     && <ListDetailPage listId={page.data} onNavigate={navigate}/>}
