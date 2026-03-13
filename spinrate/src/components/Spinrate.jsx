@@ -1587,12 +1587,13 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
         <div style={{ background:T.surface, borderRadius:20, padding:"20px 22px", border:`1px solid ${T.border}`, marginBottom:12 }}>
           <FollowStatsRow reviews={reviews} followStats={followStats} targetId={targetId} onNavigate={onNavigate}/>
           {topArtists.length > 0 && (
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom: isOwnProfile ? 12 : 0 }}>
               {topArtists.map(a => (
                 <span key={a} style={{ fontSize:12, fontWeight:600, color:T.accent, background:`${T.accent}18`, borderRadius:20, padding:"4px 12px" }}>{a}</span>
               ))}
             </div>
           )}
+          {isOwnProfile && <PushNotifButton userId={userId}/>}
         </div>
 
         {lastAlbums.length > 0 && (
@@ -1621,8 +1622,9 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
           {[
             { key:"reseñas", label:`Reseñas (${reviews.length})` },
             { key:"favoritos", label:`Favoritos (${favorites.length})` },
+            { key:"actividad", label:"Actividad" },
           ].map(t=>(
-            <button key={t.key} onClick={()=>setTab(t.key)} style={{ flex:1, padding:"8px", border:"none", borderRadius:9, cursor:"pointer", background:tab===t.key?`linear-gradient(135deg,${T.accent},${T.accent2})`:"none", color:tab===t.key?"#fff":T.textSub, fontSize:13, fontWeight:tab===t.key?600:400 }}>
+            <button key={t.key} onClick={()=>setTab(t.key)} style={{ flex:1, padding:"8px", border:"none", borderRadius:9, cursor:"pointer", background:tab===t.key?`linear-gradient(135deg,${T.accent},${T.accent2})`:"none", color:tab===t.key?"#fff":T.textSub, fontSize:12, fontWeight:tab===t.key?600:400 }}>
               {t.label}
             </button>
           ))}
@@ -2454,6 +2456,126 @@ function AlbumsSimilares({ album, onNavigate }) {
         })}
       </div>
     </div>
+  );
+}
+
+// ─── ACTIVIDAD TAB ───────────────────────────────────────────────────────────
+function ActividadTab({ reviews, onNavigate }) {
+  // Group reviews by week
+  const now = new Date();
+  const groups = [];
+  const seen = new Set();
+
+  const weekLabel = (date) => {
+    const d = new Date(date);
+    const diff = Math.floor((now - d) / (1000*60*60*24*7));
+    if (diff === 0) return "Esta semana";
+    if (diff === 1) return "La semana pasada";
+    return d.toLocaleDateString("es-AR", { month:"long", year:"numeric" });
+  };
+
+  const grouped = {};
+  reviews.forEach(r => {
+    const label = weekLabel(r.created_at);
+    if (!grouped[label]) grouped[label] = [];
+    grouped[label].push(r);
+  });
+
+  if (reviews.length === 0) return (
+    <div style={{ textAlign:"center", padding:"40px 0", color:T.textMute }}>
+      <div style={{ fontSize:28, marginBottom:8 }}>📅</div>
+      <div>Sin actividad aún</div>
+    </div>
+  );
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:20 }}>
+      {Object.entries(grouped).map(([label, items]) => (
+        <div key={label}>
+          <div style={{ fontSize:11, fontWeight:700, color:T.textMute, letterSpacing:0.5, marginBottom:10, display:"flex", alignItems:"center", gap:8 }}>
+            {label.toUpperCase()}
+            <div style={{ flex:1, height:1, background:T.border }}/>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {items.map(r => {
+              const ac = accentFor(r.album_id);
+              return (
+                <div key={r.id} onClick={()=>onNavigate("album", r.album_id)}
+                  style={{ display:"flex", gap:12, alignItems:"center", background:T.surface, borderRadius:12, padding:"10px 12px", border:`1px solid ${T.border}`, cursor:"pointer", transition:"border-color 0.15s" }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=T.textMute}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+                  <div style={{ width:44, height:44, borderRadius:8, overflow:"hidden", flexShrink:0, background:`${ac}22` }}>
+                    {r.cover_url
+                      ? <img src={r.cover_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                      : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:ac }}>♪</div>
+                    }
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{r.album_title}</div>
+                    <div style={{ fontSize:11, color:T.textSub }}>{r.artist}</div>
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <Stars n={Number(r.rating)} size={10}/>
+                    <div style={{ fontSize:10, color:T.textMute, marginTop:2 }}>{timeAgo(r.created_at)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────────────
+// Service worker registration for push notifications
+async function registerPushNotifications() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return null;
+    // Use VAPID public key (placeholder - needs real key in production)
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: "BEl62iUYgUivxIkv69yViEuiBIa40Hi5tEhVn5K8HFTO7FZxTzB4wEEGiUEz5oFWG7K4LrH2s3Q1q5p8L2k9Y2Q"
+    });
+    return sub;
+  } catch { return null; }
+}
+
+function PushNotifButton({ userId }) {
+  const [status, setStatus] = useState("idle"); // idle | requesting | enabled | unsupported
+
+  useEffect(() => {
+    if (!("Notification" in window)) { setStatus("unsupported"); return; }
+    if (Notification.permission === "granted") setStatus("enabled");
+  }, []);
+
+  const enable = async () => {
+    setStatus("requesting");
+    const sub = await registerPushNotifications();
+    if (sub) {
+      // Save subscription to Supabase for later use
+      await supabase.from("profiles").update({ push_subscription: JSON.stringify(sub) }).eq("id", userId);
+      setStatus("enabled");
+    } else {
+      setStatus("idle");
+    }
+  };
+
+  if (status === "unsupported" || status === "enabled") return (
+    <div style={{ display:"flex", alignItems:"center", gap:6, fontSize:12, color:status==="enabled"?T.accent:T.textMute }}>
+      {status==="enabled" ? "🔔 Notificaciones activadas" : "🔕 Notificaciones no disponibles"}
+    </div>
+  );
+
+  return (
+    <button onClick={enable} disabled={status==="requesting"}
+      style={{ display:"flex", alignItems:"center", gap:6, background:`${T.accent}18`, border:`1px solid ${T.accent}44`, borderRadius:20, padding:"7px 14px", color:T.accent, fontSize:12, fontWeight:600, cursor:"pointer", opacity:status==="requesting"?0.7:1 }}>
+      🔔 {status==="requesting" ? "Activando..." : "Activar notificaciones"}
+    </button>
   );
 }
 
