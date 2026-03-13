@@ -428,6 +428,7 @@ function WriteModal({ onClose, onAdd }) {
   const [text, setText] = useState("");
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState("");
+  const [listenedAt, setListenedAt] = useState(new Date().toISOString().split("T")[0]);
   const [submitting, setSubmitting] = useState(false);
   const SUGGESTED_TAGS = ["rock","pop","jazz","hip-hop","electronica","indie","metal","clasica","reggae","folk","soul","punk","alternativo","ambient"];
   const addTag = (tag) => { const t=tag.toLowerCase().trim(); if(t&&!tags.includes(t)&&tags.length<5) setTags(p=>[...p,t]); setTagInput(""); };
@@ -855,7 +856,10 @@ function ReviewCard({ r, i, onNavigate }) {
             <span onClick={()=>onNavigate("userprofile", r.user_id)} style={{ fontSize:14, fontWeight:600, color:T.text, cursor:"pointer" }}>{r.display_name||r.username}</span>
             <span style={{ fontSize:12, color:T.textMute, marginLeft:5 }}>@{r.username}</span>
           </div>
-          <span style={{ fontSize:11, color:T.textMute }}>{timeAgo(r.created_at)}</span>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:11, color:T.textMute }}>{timeAgo(r.created_at)}</div>
+            {r.listened_at && <div style={{ fontSize:10, color:T.textMute, marginTop:1 }}>escuchado {new Date(r.listened_at).toLocaleDateString("es-AR",{day:"numeric",month:"short"})}</div>}
+          </div>
         </div>
 
         {/* Album block */}
@@ -922,21 +926,28 @@ function ReviewCard({ r, i, onNavigate }) {
 }
 
 // ─── FEED ─────────────────────────────────────────────────────────────────────
-function FeedPage({ onNavigate, onWrite, refreshKey }) {
+function FeedPage({ onNavigate, onWrite, refreshKey, userId }) {
   const [tab, setTab] = useState("recientes");
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({ genre:null, minRating:null, year:null });
 
   useEffect(() => {
     setLoading(true);
     let query = supabase.from("feed_reviews").select("*");
     if (tab === "recientes") {
-      query = query.order("created_at", {ascending:false}).limit(20);
+      query = query.order("created_at", {ascending:false}).limit(50);
     } else if (tab === "populares") {
-      query = query.order("like_count", {ascending:false}).limit(20);
+      query = query.order("like_count", {ascending:false}).limit(50);
     }
     query.then(({data}) => { setReviews(data||[]); setLoading(false); });
   }, [tab, refreshKey]);
+
+  const filtered = reviews.filter(r => {
+    if (filters.genre && !(r.tags||[]).includes(filters.genre)) return false;
+    if (filters.minRating && Number(r.rating) < filters.minRating) return false;
+    return true;
+  });
 
   return (
     <div style={{ minHeight:"100vh", background:T.bg, paddingBottom:80 }}>
@@ -947,9 +958,14 @@ function FeedPage({ onNavigate, onWrite, refreshKey }) {
               <div style={{ width:32, height:32, borderRadius:9, background:`linear-gradient(135deg,${T.accent},${T.accent2})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>♪</div>
               <span style={{ fontSize:18, fontWeight:800, color:T.text }}>aftertrack</span>
             </div>
-            <button onClick={onWrite} style={{ background:`linear-gradient(135deg,${T.accent},${T.accent2})`, border:"none", borderRadius:20, padding:"8px 18px", color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
-              <span style={{ fontSize:16 }}>+</span> Reseñar
-            </button>
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <button onClick={()=>{ applyTheme(!_darkMode); window.location.reload(); }} style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:20, padding:"6px 10px", color:T.textSub, fontSize:14, cursor:"pointer" }} title="Cambiar tema">
+                {_darkMode ? "☀️" : "🌙"}
+              </button>
+              <button onClick={onWrite} style={{ background:`linear-gradient(135deg,${T.accent},${T.accent2})`, border:"none", borderRadius:20, padding:"8px 18px", color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
+                <span style={{ fontSize:16 }}>+</span> Reseñar
+              </button>
+            </div>
           </div>
           {/* Tabs */}
           <div style={{ display:"flex", gap:0, borderTop:`1px solid ${T.border}`, marginTop:0 }}>
@@ -963,14 +979,17 @@ function FeedPage({ onNavigate, onWrite, refreshKey }) {
         </div>
       </header>
       <main style={{ maxWidth:560, margin:"0 auto", padding:"20px 20px 0" }}>
-        {loading ? <Spinner/> : reviews.length===0 ? (
+        <MesDelAlbumBanner onNavigate={onNavigate}/>
+        <RecomendacionesBanner userId={userId} onNavigate={onNavigate}/>
+        <FeedFilters filters={filters} onChange={setFilters}/>
+        {loading ? <Spinner/> : filtered.length===0 ? (
           <div style={{ textAlign:"center", padding:"60px 20px" }}>
             <div style={{ fontSize:36, marginBottom:10 }}>🎵</div>
-            <div style={{ fontSize:14, color:T.textSub, fontWeight:600 }}>Todavía no hay reseñas</div>
+            <div style={{ fontSize:14, color:T.textSub, fontWeight:600 }}>{reviews.length===0?"Todavía no hay reseñas":"Sin resultados para estos filtros"}</div>
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-            {reviews.map((r,i)=><ReviewCard key={r.id} r={r} i={i} onNavigate={onNavigate}/>)}
+            {filtered.map((r,i)=><ReviewCard key={r.id} r={r} i={i} onNavigate={onNavigate}/>)}
           </div>
         )}
       </main>
@@ -1376,6 +1395,11 @@ function AlbumPage({ albumId, onNavigate, userId }) {
         )}
       </div>
       {showAddList && album && <AddToListModal album={album} userId={userId} onClose={()=>setShowAddList(false)}/>}
+      {album && (
+        <div style={{ maxWidth:560, margin:"0 auto", padding:"0 20px" }}>
+          <AlbumsSimilares album={album} onNavigate={onNavigate}/>
+        </div>
+      )}
     </div>
   );
 }
@@ -2211,6 +2235,220 @@ function AutoListPage({ list, onNavigate }) {
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── MES DEL ALBUM ────────────────────────────────────────────────────────────
+function MesDelAlbumBanner({ onNavigate }) {
+  const [album, setAlbum] = useState(null);
+  const [votes, setVotes] = useState(0);
+  const [voted, setVoted] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const monthName = now.toLocaleDateString("es-AR",{month:"long", year:"numeric"});
+
+  useEffect(() => {
+    // Get most voted album this month from reviews
+    supabase.from("feed_reviews").select("album_id,album_title,artist,cover_url,year")
+      .gte("created_at", new Date(now.getFullYear(), now.getMonth(), 1).toISOString())
+      .limit(100)
+      .then(({data}) => {
+        if (!data || data.length===0) { setLoading(false); return; }
+        const counts = {};
+        const meta = {};
+        data.forEach(r => {
+          counts[r.album_id] = (counts[r.album_id]||0)+1;
+          meta[r.album_id] = r;
+        });
+        const top = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+        if (top) { setAlbum(meta[top[0]]); setVotes(top[1]); }
+        setLoading(false);
+      });
+    const savedVote = localStorage.getItem ? localStorage.getItem(`voted_${monthKey}`) : null;
+    setVoted(!!savedVote);
+  }, []);
+
+  const vote = () => {
+    if (voted || !album) return;
+    setVoted(true);
+    setVotes(v=>v+1);
+    try { localStorage.setItem(`voted_${monthKey}`, "1"); } catch {}
+  };
+
+  if (loading || !album) return null;
+  const ac = accentFor(album.album_id);
+
+  return (
+    <div style={{ background:`linear-gradient(135deg,${ac}22,${T.accent}11)`, borderRadius:16, border:`1px solid ${ac}44`, padding:"16px", marginBottom:16, display:"flex", gap:14, alignItems:"center" }}>
+      <div onClick={()=>onNavigate("album",album.album_id)} style={{ cursor:"pointer", flexShrink:0 }}>
+        <AlbumCover src={album.cover_url} ac={ac} size={64}/>
+      </div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:10, fontWeight:700, color:ac, letterSpacing:0.5, marginBottom:4 }}>🏆 ÁLBUM DEL MES · {monthName.toUpperCase()}</div>
+        <div onClick={()=>onNavigate("album",album.album_id)} style={{ fontSize:15, fontWeight:700, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", cursor:"pointer" }}>{album.album_title}</div>
+        <div style={{ fontSize:12, color:T.textSub }}>{album.artist} · {votes} reseña{votes!==1?"s":""}</div>
+      </div>
+      <button onClick={vote} disabled={voted}
+        style={{ flexShrink:0, padding:"8px 14px", background:voted?`${ac}22`:`linear-gradient(135deg,${ac},${T.accent})`, border:`1px solid ${voted?ac+"44":ac}`, borderRadius:20, color:voted?ac:"#fff", fontSize:12, fontWeight:700, cursor:voted?"default":"pointer" }}>
+        {voted?"✓ Votado":"Votar"}
+      </button>
+    </div>
+  );
+}
+
+// ─── RECOMENDACIONES ──────────────────────────────────────────────────────────
+function RecomendacionesBanner({ userId, onNavigate }) {
+  const [albums, setAlbums] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) return;
+    // Get user's top tags
+    supabase.from("reviews").select("tags").eq("user_id", userId).not("tags","is",null).limit(20)
+      .then(async ({data}) => {
+        const tagCounts = {};
+        (data||[]).forEach(r => (r.tags||[]).forEach(t => { tagCounts[t]=(tagCounts[t]||0)+1; }));
+        const topTags = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([t])=>t);
+        if (topTags.length===0) { setLoading(false); return; }
+
+        // Get user's reviewed album IDs
+        const {data:myReviews} = await supabase.from("reviews").select("album_id").eq("user_id",userId);
+        const myIds = new Set((myReviews||[]).map(r=>r.album_id));
+
+        // Find albums with those tags that user hasn't reviewed
+        const {data:tagged} = await supabase.from("feed_reviews")
+          .select("album_id,album_title,artist,cover_url,year,tags")
+          .overlaps("tags", topTags)
+          .limit(50);
+
+        const seen = new Set();
+        const recs = (tagged||[]).filter(r => !myIds.has(r.album_id) && !seen.has(r.album_id) && seen.add(r.album_id)).slice(0,6);
+        setAlbums(recs);
+        setLoading(false);
+      });
+  }, [userId]);
+
+  if (loading || albums.length===0) return null;
+
+  return (
+    <div style={{ marginBottom:16 }}>
+      <div style={{ fontSize:11, color:T.textMute, fontWeight:700, letterSpacing:0.5, marginBottom:10 }}>✨ PARA VOS</div>
+      <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
+        {albums.map(a => {
+          const ac = accentFor(a.album_id);
+          return (
+            <div key={a.album_id} onClick={()=>onNavigate("album",a.album_id)}
+              style={{ flexShrink:0, cursor:"pointer", width:100 }}>
+              <div style={{ width:100, height:100, borderRadius:12, overflow:"hidden", background:`${ac}22`, marginBottom:6, boxShadow:`0 4px 12px ${ac}33` }}>
+                {a.cover_url
+                  ? <img src={a.cover_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                  : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:28, color:ac }}>♪</div>
+                }
+              </div>
+              <div style={{ fontSize:12, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{a.album_title}</div>
+              <div style={{ fontSize:11, color:T.textSub, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{a.artist}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── FEED FILTERS ─────────────────────────────────────────────────────────────
+function FeedFilters({ filters, onChange }) {
+  const [open, setOpen] = useState(false);
+  const GENRES = ["rock","pop","jazz","hip-hop","electronica","indie","metal","clasica","reggae","folk","soul","punk","alternativo","ambient"];
+
+  return (
+    <div style={{ marginBottom:12 }}>
+      <button onClick={()=>setOpen(!open)}
+        style={{ display:"flex", alignItems:"center", gap:6, background:(filters.genre||filters.minRating||filters.year)?`${T.accent}18`:"none", border:`1px solid ${(filters.genre||filters.minRating||filters.year)?T.accent:T.border}`, borderRadius:20, padding:"6px 14px", color:(filters.genre||filters.minRating||filters.year)?T.accent:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer" }}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+        Filtrar {(filters.genre||filters.minRating||filters.year) ? "·" : ""} {[filters.genre, filters.minRating&&`≥${filters.minRating}★`, filters.year].filter(Boolean).join(" · ")}
+      </button>
+      {open && (
+        <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:14, padding:"16px", marginTop:8 }}>
+          <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+            <div>
+              <div style={{ fontSize:11, color:T.textMute, marginBottom:6 }}>Género</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
+                {GENRES.map(g=>(
+                  <button key={g} onClick={()=>onChange({...filters, genre:filters.genre===g?null:g})}
+                    style={{ fontSize:11, padding:"4px 10px", borderRadius:20, border:`1px solid ${filters.genre===g?T.accent:T.border}`, background:filters.genre===g?`${T.accent}18`:"none", color:filters.genre===g?T.accent:T.textSub, cursor:"pointer" }}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize:11, color:T.textMute, marginBottom:6 }}>Rating mínimo</div>
+              <div style={{ display:"flex", gap:6 }}>
+                {[null,2,3,4,4.5].map(r=>(
+                  <button key={r} onClick={()=>onChange({...filters, minRating:filters.minRating===r?null:r})}
+                    style={{ fontSize:12, padding:"5px 12px", borderRadius:20, border:`1px solid ${filters.minRating===r?T.accent:T.border}`, background:filters.minRating===r?`${T.accent}18`:"none", color:filters.minRating===r?T.accent:T.textSub, cursor:"pointer" }}>
+                    {r===null?"Todos":`≥${r}★`}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:"flex", justifyContent:"flex-end" }}>
+              <button onClick={()=>{ onChange({genre:null,minRating:null,year:null}); setOpen(false); }}
+                style={{ background:"none", border:"none", color:T.textMute, fontSize:12, cursor:"pointer" }}>Limpiar filtros</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ALBUMES SIMILARES ────────────────────────────────────────────────────────
+function AlbumsSimilares({ album, onNavigate }) {
+  const [similares, setSimilares] = useState([]);
+
+  useEffect(() => {
+    if (!album) return;
+    // Find albums with same tags or same artist, not this album
+    const queries = [];
+    if (album.tags && album.tags.length > 0) {
+      queries.push(supabase.from("feed_reviews").select("album_id,album_title,artist,cover_url,year,tags,rating").overlaps("tags", album.tags).neq("album_id", album.id).limit(20));
+    }
+    queries.push(supabase.from("feed_reviews").select("album_id,album_title,artist,cover_url,year,rating").ilike("artist", album.artist).neq("album_id", album.id).limit(10));
+
+    Promise.all(queries).then(results => {
+      const seen = new Set();
+      const all = results.flatMap(r=>r.data||[]).filter(r=>!seen.has(r.album_id)&&seen.add(r.album_id));
+      setSimilares(all.slice(0,6));
+    });
+  }, [album?.id]);
+
+  if (similares.length===0) return null;
+
+  return (
+    <div style={{ marginTop:20, marginBottom:20 }}>
+      <div style={{ fontSize:11, color:T.textMute, fontWeight:700, letterSpacing:0.5, marginBottom:12 }}>TAMBIÉN TE PUEDE GUSTAR</div>
+      <div style={{ display:"flex", gap:10, overflowX:"auto", paddingBottom:4 }}>
+        {similares.map(a => {
+          const ac = accentFor(a.album_id);
+          return (
+            <div key={a.album_id} onClick={()=>onNavigate("album",a.album_id)} style={{ flexShrink:0, cursor:"pointer", width:90 }}>
+              <div style={{ width:90, height:90, borderRadius:10, overflow:"hidden", background:`${ac}22`, marginBottom:5, boxShadow:`0 3px 10px ${ac}33` }}>
+                {a.cover_url
+                  ? <img src={a.cover_url} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                  : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", color:ac }}>♪</div>
+                }
+              </div>
+              <div style={{ fontSize:11, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{a.album_title}</div>
+              <div style={{ fontSize:10, color:T.textSub, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{a.artist}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
