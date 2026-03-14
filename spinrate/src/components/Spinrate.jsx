@@ -244,6 +244,69 @@ function Spinner() {
   );
 }
 
+function SkeletonBlock({ w="100%", h=14, r=8, mb=0 }) {
+  return <div style={{ width:w, height:h, borderRadius:r, background:`linear-gradient(90deg,${T.surface2} 25%,${T.border} 50%,${T.surface2} 75%)`, backgroundSize:"200% 100%", animation:"shimmer 1.4s infinite", marginBottom:mb }}/>;
+}
+
+function SkeletonCard({ i=0 }) {
+  return (
+    <div style={{ background:T.surface, borderRadius:16, padding:"20px", border:`1px solid ${T.border}`, animation:`fadeUp 0.3s ease ${i*0.05}s both` }}>
+      <div style={{ display:"flex", gap:10, marginBottom:14, alignItems:"center" }}>
+        <div style={{ width:36, height:36, borderRadius:"50%", background:T.surface2, flexShrink:0, animation:"shimmer 1.4s infinite", backgroundSize:"200% 100%", backgroundImage:`linear-gradient(90deg,${T.surface2} 25%,${T.border} 50%,${T.surface2} 75%)` }}/>
+        <div style={{ flex:1, display:"flex", flexDirection:"column", gap:6 }}>
+          <SkeletonBlock w="40%" h={12}/>
+          <SkeletonBlock w="25%" h={10}/>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:0, borderRadius:12, overflow:"hidden", marginBottom:14, border:`1px solid ${T.border}` }}>
+        <div style={{ width:110, height:110, background:T.surface2, flexShrink:0, animation:"shimmer 1.4s infinite", backgroundSize:"200% 100%", backgroundImage:`linear-gradient(90deg,${T.surface2} 25%,${T.border} 50%,${T.surface2} 75%)` }}/>
+        <div style={{ flex:1, padding:"12px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+          <SkeletonBlock w="80%" h={14}/>
+          <SkeletonBlock w="50%" h={11}/>
+          <SkeletonBlock w="60%" h={10}/>
+        </div>
+      </div>
+      <SkeletonBlock w="100%" h={12} mb={6}/>
+      <SkeletonBlock w="75%" h={12}/>
+    </div>
+  );
+}
+
+function FeedSkeleton() {
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+      {[0,1,2].map(i => <SkeletonCard key={i} i={i}/>)}
+    </div>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div style={{ padding:"20px" }}>
+      <div style={{ display:"flex", gap:12, alignItems:"center", marginBottom:20 }}>
+        <div style={{ width:80, height:80, borderRadius:"50%", background:T.surface2, animation:"shimmer 1.4s infinite", backgroundSize:"200% 100%", backgroundImage:`linear-gradient(90deg,${T.surface2} 25%,${T.border} 50%,${T.surface2} 75%)` }}/>
+        <div style={{ flex:1, display:"flex", flexDirection:"column", gap:8 }}>
+          <SkeletonBlock w="50%" h={18}/>
+          <SkeletonBlock w="30%" h={12}/>
+        </div>
+      </div>
+      <div style={{ background:T.surface, borderRadius:20, padding:20, marginBottom:14 }}>
+        <div style={{ display:"flex", marginBottom:16, paddingBottom:16, borderBottom:`1px solid ${T.border}` }}>
+          {[0,1,2].map(i=>(
+            <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:6, borderRight:i<2?`1px solid ${T.border}`:"none" }}>
+              <SkeletonBlock w={40} h={20} r={6}/>
+              <SkeletonBlock w={50} h={10} r={6}/>
+            </div>
+          ))}
+        </div>
+        <div style={{ display:"flex", gap:6 }}>
+          {[0,1,2].map(i=><SkeletonBlock key={i} w={60} h={26} r={20}/>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function msToMin(ms) {
   if (!ms) return "";
   const s = Math.floor(ms/1000);
@@ -985,7 +1048,7 @@ function FeedPage({ onNavigate, onWrite, refreshKey, userId }) {
         <MesDelAlbumBanner onNavigate={onNavigate}/>
         <RecomendacionesBanner userId={userId} onNavigate={onNavigate}/>
         <FeedFilters filters={filters} onChange={setFilters}/>
-        {loading ? <Spinner/> : filtered.length===0 ? (
+        {loading ? <FeedSkeleton/> : filtered.length===0 ? (
           <div style={{ textAlign:"center", padding:"60px 20px" }}>
             <div style={{ fontSize:36, marginBottom:10 }}>🎵</div>
             <div style={{ fontSize:14, color:T.textSub, fontWeight:600 }}>{reviews.length===0?"Todavía no hay reseñas":"Sin resultados para estos filtros"}</div>
@@ -1008,7 +1071,25 @@ function SearchPage({ onNavigate, userId }) {
   const [userResults, setUserResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [following, setFollowing] = useState(new Set());
+  const [history, setHistory] = useState([]);
   const debounce = useRef(null);
+
+  useEffect(() => {
+    try { setHistory(JSON.parse(localStorage.getItem("aftertrack_search_history")||"[]")); } catch {}
+  }, []);
+
+  const saveToHistory = (q) => {
+    try {
+      const prev = JSON.parse(localStorage.getItem("aftertrack_search_history")||"[]");
+      const updated = [q, ...prev.filter(h=>h!==q)].slice(0,8);
+      localStorage.setItem("aftertrack_search_history", JSON.stringify(updated));
+      setHistory(updated);
+    } catch {}
+  };
+
+  const clearHistory = () => {
+    try { localStorage.removeItem("aftertrack_search_history"); setHistory([]); } catch {}
+  };
 
   // Load who current user follows
   useEffect(() => {
@@ -1260,7 +1341,7 @@ function AlbumPage({ albumId, onNavigate, userId }) {
     load();
   }, [albumId]);
 
-  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><Spinner/></div>;
+  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><ProfileSkeleton/></div>;
   if (!album) return null;
 
   const avgRating = reviews.length>0
@@ -1537,7 +1618,7 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
     setReviews(prev => prev.filter(r => r.id !== reviewId));
   };
 
-  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><Spinner/></div>;
+  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><ProfileSkeleton/></div>;
 
   const lastAlbums = reviews.slice(0,5);
   const artistCounts = {};
@@ -1565,6 +1646,7 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
             <div style={{ display:"flex", gap:8 }}>
               {isOwnProfile ? (
                 <>
+                  <button onClick={()=>{ const url = `${window.location.origin}?u=${profile?.username}`; navigator.clipboard?.writeText(url); alert("¡Link copiado!"); }} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:16, padding:"7px 10px", color:T.textSub, fontSize:16, cursor:"pointer" }} title="Compartir perfil">🔗</button>
                   <button onClick={()=>setShowEdit(true)} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:16, padding:"7px 14px", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer" }}>Editar perfil</button>
                   <button onClick={onLogout} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:16, padding:"7px 14px", color:T.textSub, fontSize:12, fontWeight:600, cursor:"pointer" }}>Salir</button>
                 </>
@@ -1587,13 +1669,14 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
         <div style={{ background:T.surface, borderRadius:20, padding:"20px 22px", border:`1px solid ${T.border}`, marginBottom:12 }}>
           <FollowStatsRow reviews={reviews} followStats={followStats} targetId={targetId} onNavigate={onNavigate}/>
           {topArtists.length > 0 && (
-            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom: isOwnProfile ? 12 : 0 }}>
+            <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:12 }}>
               {topArtists.map(a => (
-                <span key={a} style={{ fontSize:12, fontWeight:600, color:T.accent, background:`${T.accent}18`, borderRadius:20, padding:"4px 12px" }}>{a}</span>
+                <span key={a} onClick={()=>onNavigate("artist",a)} style={{ fontSize:12, fontWeight:600, color:T.accent, background:`${T.accent}18`, borderRadius:20, padding:"4px 12px", cursor:"pointer" }}>{a}</span>
               ))}
             </div>
           )}
-          {isOwnProfile && <PushNotifButton userId={userId}/>}
+          <ProfileStats reviews={reviews}/>
+          {isOwnProfile && <div style={{ marginTop:12 }}><PushNotifButton userId={userId}/></div>}
         </div>
 
         {lastAlbums.length > 0 && (
@@ -1988,7 +2071,7 @@ function ListDetailPage({ listId, onNavigate }) {
     });
   }, [listId]);
 
-  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><Spinner/></div>;
+  if (loading) return <div style={{ minHeight:"100vh", background:T.bg }}><ProfileSkeleton/></div>;
   if (!list) return null;
 
   return (
@@ -2579,6 +2662,55 @@ function PushNotifButton({ userId }) {
   );
 }
 
+// ─── PROFILE STATS ───────────────────────────────────────────────────────────
+function ProfileStats({ reviews }) {
+  if (reviews.length === 0) return null;
+
+  // Top genres from tags
+  const tagCounts = {};
+  reviews.forEach(r => (r.tags||[]).forEach(t => { tagCounts[t]=(tagCounts[t]||0)+1; }));
+  const topTags = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).slice(0,4);
+
+  // Most reviewed year
+  const yearCounts = {};
+  reviews.forEach(r => { if(r.year) yearCounts[r.year]=(yearCounts[r.year]||0)+1; });
+  const topYear = Object.entries(yearCounts).sort((a,b)=>b[1]-a[1])[0]?.[0];
+
+  // Months active
+  const months = new Set(reviews.map(r=>r.created_at?.slice(0,7))).size;
+
+  if (topTags.length===0 && !topYear) return null;
+
+  return (
+    <div style={{ marginTop:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
+      <div style={{ display:"flex", gap:16, flexWrap:"wrap" }}>
+        {topYear && (
+          <div>
+            <div style={{ fontSize:10, color:T.textMute, marginBottom:3 }}>AÑO FAVORITO</div>
+            <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{topYear}</div>
+          </div>
+        )}
+        {months > 0 && (
+          <div>
+            <div style={{ fontSize:10, color:T.textMute, marginBottom:3 }}>MESES ACTIVO</div>
+            <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{months}</div>
+          </div>
+        )}
+        {topTags.length > 0 && (
+          <div>
+            <div style={{ fontSize:10, color:T.textMute, marginBottom:3 }}>GÉNEROS TOP</div>
+            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+              {topTags.map(([t,n])=>(
+                <span key={t} style={{ fontSize:11, fontWeight:600, color:T.accent, background:`${T.accent}15`, borderRadius:20, padding:"2px 8px" }}>#{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function Aftertrack() {
   const [session, setSession] = useState(null);
@@ -2606,6 +2738,8 @@ export default function Aftertrack() {
       <style>{`
         @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+        @keyframes pageIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:translateX(0)}}
         *{box-sizing:border-box;margin:0;padding:0;}
         body{background:${T.bg};}
         input::placeholder,textarea::placeholder{color:${T.textMute};}
@@ -2613,6 +2747,7 @@ export default function Aftertrack() {
         ::-webkit-scrollbar-thumb{background:${T.border};border-radius:4px}
       `}</style>
 
+      <div key={page.name} style={{ animation:"pageIn 0.2s ease both" }}>
       {page.name==="feed"     && <FeedPage onNavigate={navigate} onWrite={()=>setModal(true)} refreshKey={feedKey} userId={user?.id}/>}
       {page.name==="search"   && <SearchPage onNavigate={navigate} userId={user?.id}/>}
       {page.name==="lists"    && <ListsPage userId={user?.id} onNavigate={navigate}/>}
@@ -2624,6 +2759,7 @@ export default function Aftertrack() {
       {page.name==="album"    && <AlbumPage albumId={page.data} onNavigate={navigate} userId={user?.id}/>}
       {page.name==="list"     && <ListDetailPage listId={page.data} onNavigate={navigate}/>}
       {page.name==="autolist" && <AutoListPage list={page.data} onNavigate={navigate}/>}
+      </div>
 
       {!["album","list","autolist","userprofile","artist","tag"].includes(page.name) && <BottomNav current={page.name} onNavigate={navigate}/>}
       {modal && <WriteModal onClose={()=>setModal(false)} onAdd={()=>{ setModal(false); navigate("feed"); setFeedKey(k=>k+1); }}/>}
