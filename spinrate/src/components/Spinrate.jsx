@@ -523,9 +523,15 @@ function WriteModal({ onClose, onAdd }) {
           if (resolvedCover) await supabase.from("albums").update({ cover_url: resolvedCover }).eq("id", albumId);
         }
       }
-      const { error } = await supabase.from("reviews").insert({ album_id:albumId, rating, text });
+      const { error } = await supabase.from("reviews").insert({
+        album_id: albumId, rating, text: text.trim(),
+        tags: tags.length > 0 ? tags : null,
+        listened_at: listenedAt || null,
+      });
       if (error) throw error;
-      onAdd(); onClose();
+      onAdd();
+      onClose();
+      if (onNavigate) onNavigate("album", albumId);
     } catch(e) { alert("Error: "+e.message); }
     setSubmitting(false);
   };
@@ -572,14 +578,22 @@ function WriteModal({ onClose, onAdd }) {
 
         {step==="review" && selected && (
           <div style={{ padding:"0 24px 24px", flex:1, overflowY:"auto" }}>
-            <div style={{ display:"flex", gap:14, alignItems:"center", background:T.surface2, borderRadius:14, padding:"14px", marginBottom:20, border:`1px solid ${T.border}` }}>
+            <div style={{ display:"flex", gap:14, alignItems:"center", background:T.surface2, borderRadius:14, padding:"14px", marginBottom:20, border:`1px solid ${T.border}`, cursor:"pointer", transition:"border-color 0.15s" }}
+              onClick={async ()=>{
+                // Find album in DB to navigate, or close and go
+                const { data } = await supabase.from("albums").select("id").eq("mbid", selected.mbid).single();
+                if (data?.id && onNavigate) { onClose(); onNavigate("album", data.id); }
+              }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
               <div style={{ width:60, height:60, borderRadius:8, overflow:"hidden", flexShrink:0, background:T.border }}>
                 {!coverErr ? <img src={selected.cover} alt="" onError={()=>setCoverErr(true)} style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : <div style={{ width:"100%", height:"100%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, color:T.accent }}>♪</div>}
               </div>
-              <div>
+              <div style={{ flex:1 }}>
                 <div style={{ fontSize:16, fontWeight:700, color:T.text }}>{selected.title}</div>
                 <div style={{ fontSize:13, color:T.textSub }}>{selected.artist} · {selected.year}</div>
               </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMute} strokeWidth="2"><polyline points="9,18 15,12 9,6"/></svg>
             </div>
             <div style={{ marginBottom:16 }}>
               <div style={{ fontSize:11, color:T.textMute, fontWeight:600, letterSpacing:0.5, marginBottom:10 }}>PUNTUACIÓN DEL ÁLBUM</div>
@@ -590,6 +604,36 @@ function WriteModal({ onClose, onAdd }) {
               value={text} onChange={e=>setText(e.target.value)} rows={4}
               style={{ width:"100%", padding:"12px 14px", background:T.surface2, border:`1.5px solid ${T.border}`, borderRadius:12, fontSize:14, color:T.text, outline:"none", fontFamily:"Georgia,serif", resize:"none", lineHeight:1.6, marginBottom:16 }}
               onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+            {/* Fecha de escucha */}
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:11, color:T.textMute, fontWeight:600, letterSpacing:0.5, marginBottom:8 }}>¿CUÁNDO LO ESCUCHASTE?</div>
+              <input type="date" value={listenedAt} onChange={e=>setListenedAt(e.target.value)}
+                style={{ width:"100%", padding:"10px 14px", background:T.surface2, border:`1.5px solid ${T.border}`, borderRadius:12, fontSize:14, color:T.text, outline:"none", fontFamily:"inherit", colorScheme:"dark" }}
+                onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+            </div>
+            {/* Tags */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, color:T.textMute, fontWeight:600, letterSpacing:0.5, marginBottom:8 }}>GÉNEROS / TAGS (HASTA 5)</div>
+              {tags.length>0 && (
+                <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:8 }}>
+                  {tags.map(t=>(
+                    <span key={t} style={{ display:"flex", alignItems:"center", gap:4, fontSize:12, fontWeight:600, color:T.accent, background:`${T.accent}18`, borderRadius:20, padding:"3px 10px" }}>
+                      #{t} <span onClick={()=>removeTag(t)} style={{ cursor:"pointer" }}>×</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ display:"flex", flexWrap:"wrap", gap:5, marginBottom:8 }}>
+                {SUGGESTED_TAGS.filter(t=>!tags.includes(t)).slice(0,6).map(t=>(
+                  <button key={t} onClick={()=>addTag(t)} style={{ fontSize:11, color:T.textSub, background:T.surface2, border:`1px solid ${T.border}`, borderRadius:20, padding:"3px 9px", cursor:"pointer" }}>+{t}</button>
+                ))}
+              </div>
+              <input value={tagInput} onChange={e=>setTagInput(e.target.value)}
+                onKeyDown={e=>{ if(["Enter"," ",","].includes(e.key)&&tagInput.trim()){ e.preventDefault(); addTag(tagInput); }}}
+                placeholder="Escribí un tag y presioná Enter"
+                style={{ width:"100%", padding:"9px 12px", background:T.surface2, border:`1.5px solid ${T.border}`, borderRadius:10, fontSize:13, color:T.text, outline:"none", fontFamily:"inherit" }}
+                onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+            </div>
             <button onClick={handleSubmit} disabled={!ready} style={{ width:"100%", padding:"13px", background:ready?`linear-gradient(135deg,${T.accent},${T.accent2})`:"#2a2f45", border:"none", borderRadius:12, color:ready?"#fff":T.textMute, fontSize:15, fontWeight:600, cursor:ready?"pointer":"default" }}>
               {submitting?"Publicando...":"Publicar reseña del álbum"}
             </button>
@@ -1793,7 +1837,7 @@ function EditReviewModal({ review, onClose, onSaved }) {
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <div>
             <div style={{ fontSize:12, color:T.textMute, marginBottom:8 }}>Calificación</div>
-            <HalfStarPicker value={rating} onChange={setRating}/>
+            <Stars n={rating} onChange={setRating} size={28}/>
           </div>
           <textarea value={text} onChange={e=>setText(e.target.value)} rows={5} placeholder="Tu reseña..."
             style={{ width:"100%", padding:"12px 14px", background:T.surface2, border:`1.5px solid ${T.border}`, borderRadius:12, fontSize:14, color:T.text, outline:"none", fontFamily:"Georgia,serif", resize:"none", lineHeight:1.6 }}
@@ -1817,11 +1861,15 @@ function FollowersModal({ userId, mode, onClose, onNavigate }) {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     const isFollowers = mode === "followers";
+    // Get follow IDs first, then fetch profiles
     supabase.from("follows")
-      .select(isFollowers ? "follower:profiles!follows_follower_id_fkey(id,username,display_name,avatar_url,bio)" : "following:profiles!follows_following_id_fkey(id,username,display_name,avatar_url,bio)")
+      .select(isFollowers ? "follower_id" : "following_id")
       .eq(isFollowers ? "following_id" : "follower_id", userId)
-      .then(({data}) => {
-        setUsers((data||[]).map(d=>isFollowers?d.follower:d.following).filter(Boolean));
+      .then(async ({data}) => {
+        const ids = (data||[]).map(d => isFollowers ? d.follower_id : d.following_id);
+        if (ids.length === 0) { setLoading(false); return; }
+        const {data:profiles} = await supabase.from("profiles").select("id,username,display_name,avatar_url,bio").in("id", ids);
+        setUsers(profiles||[]);
         setLoading(false);
       });
   }, [userId, mode]);
@@ -2410,7 +2458,7 @@ function RecomendacionesBanner({ userId, onNavigate }) {
   useEffect(() => {
     if (!userId) return;
     // Get user's top tags
-    supabase.from("reviews").select("tags").eq("user_id", userId).not("tags","is",null).limit(20)
+    supabase.from("reviews").select("tags").eq("user_id", userId).limit(30)
       .then(async ({data}) => {
         const tagCounts = {};
         (data||[]).forEach(r => (r.tags||[]).forEach(t => { tagCounts[t]=(tagCounts[t]||0)+1; }));
@@ -2932,7 +2980,7 @@ export default function Aftertrack() {
       </div>
 
       {!["album","list","autolist","userprofile","artist","tag"].includes(page.name) && <BottomNav current={page.name} onNavigate={navigate}/>}
-      {modal && <WriteModal onClose={()=>setModal(false)} onAdd={()=>{ setModal(false); navigate("feed"); setFeedKey(k=>k+1); }}/>}
+      {modal && <WriteModal onClose={()=>setModal(false)} onNavigate={navigate} onAdd={()=>{ setModal(false); setFeedKey(k=>k+1); }}/>}
       {showOnboarding && <OnboardingModal onDone={finishOnboarding}/>}
     </>
   );
