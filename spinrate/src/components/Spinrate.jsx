@@ -894,6 +894,7 @@ function ReviewCard({ r, i, onNavigate }) {
       else {
         await supabase.from("likes").insert({ review_id:r.id }); setLikes(l=>l+1);
         setLikeAnim(true); setTimeout(()=>setLikeAnim(false), 600);
+        try { navigator.vibrate && navigator.vibrate([10, 30, 10]); } catch {}
       }
       setLiked(!liked);
     } catch {}
@@ -990,6 +991,11 @@ function FeedPage({ onNavigate, onWrite, refreshKey, userId }) {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ genre:null, minRating:null, year:null });
   const [isDark, setIsDark] = useState(true);
+  const [pullY, setPullY] = useState(0);
+  const [pulling, setPulling] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const touchStartY = useRef(0);
+  const mainRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -998,16 +1004,28 @@ function FeedPage({ onNavigate, onWrite, refreshKey, userId }) {
     } catch {}
   }, []);
 
-  useEffect(() => {
+  const loadReviews = () => {
     setLoading(true);
     let query = supabase.from("feed_reviews").select("*");
-    if (tab === "recientes") {
-      query = query.order("created_at", {ascending:false}).limit(50);
-    } else if (tab === "populares") {
-      query = query.order("like_count", {ascending:false}).limit(50);
-    }
-    query.then(({data}) => { setReviews(data||[]); setLoading(false); });
-  }, [tab, refreshKey]);
+    if (tab === "recientes") query = query.order("created_at", {ascending:false}).limit(50);
+    else if (tab === "populares") query = query.order("like_count", {ascending:false}).limit(50);
+    query.then(({data}) => { setReviews(data||[]); setLoading(false); setRefreshing(false); });
+  };
+
+  useEffect(() => { loadReviews(); }, [tab, refreshKey]);
+
+  const onTouchStart = (e) => {
+    if (window.scrollY === 0) touchStartY.current = e.touches[0].clientY;
+  };
+  const onTouchMove = (e) => {
+    if (touchStartY.current === 0) return;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (dy > 0 && window.scrollY === 0) { setPullY(Math.min(dy * 0.4, 70)); setPulling(true); }
+  };
+  const onTouchEnd = () => {
+    if (pullY > 50) { setRefreshing(true); setPullY(0); setPulling(false); touchStartY.current = 0; loadReviews(); }
+    else { setPullY(0); setPulling(false); touchStartY.current = 0; }
+  };
 
   const filtered = reviews.filter(r => {
     if (filters.genre && !(r.tags||[]).includes(filters.genre)) return false;
@@ -1044,7 +1062,13 @@ function FeedPage({ onNavigate, onWrite, refreshKey, userId }) {
           </div>
         </div>
       </header>
-      <main style={{ maxWidth:560, margin:"0 auto", padding:"20px 20px 0" }}>
+      <main ref={mainRef} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        style={{ maxWidth:560, margin:"0 auto", padding:"20px 20px 0", transform:`translateY(${pullY}px)`, transition:pulling?"none":"transform 0.3s ease" }}>
+        {(pullY > 10 || refreshing) && (
+          <div style={{ textAlign:"center", padding:"0 0 12px", color:T.accent, fontSize:12, fontWeight:600 }}>
+            {refreshing ? "Actualizando..." : pullY > 50 ? "↑ Soltá para actualizar" : "↓ Tirá para actualizar"}
+          </div>
+        )}
         <MesDelAlbumBanner onNavigate={onNavigate}/>
         <RecomendacionesBanner userId={userId} onNavigate={onNavigate}/>
         <FeedFilters filters={filters} onChange={setFilters}/>
@@ -1176,9 +1200,14 @@ function SearchPage({ onNavigate, userId }) {
                   })}
                 </div>
               ) : (
-                <div style={{ textAlign:"center", padding:"48px 0" }}>
-                  <div style={{ fontSize:36, marginBottom:10 }}>🎵</div>
-                  <div style={{ fontSize:14, color:T.textSub }}>{query.length>=2?"Sin resultados":"Buscá álbumes reseñados"}</div>
+                <div>
+                  {query.length < 2 && <TrendingSection onNavigate={onNavigate}/>}
+                  {query.length >= 2 && (
+                    <div style={{ textAlign:"center", padding:"48px 0" }}>
+                      <div style={{ fontSize:36, marginBottom:10 }}>🎵</div>
+                      <div style={{ fontSize:14, color:T.textSub }}>Sin resultados</div>
+                    </div>
+                  )}
                 </div>
               )
             )}
@@ -1717,23 +1746,7 @@ function ProfilePage({ onNavigate, userId, viewUserId, onLogout }) {
           {tab==="reseñas" && (
             reviews.length===0
               ? <div style={{ textAlign:"center", padding:"40px 0", color:T.textMute }}><div style={{ fontSize:28, marginBottom:8 }}>📝</div><div>Todavía no reseñaste nada</div></div>
-              : reviews.map((r,i) => (
-                <div key={r.id} style={{ position:"relative" }}>
-                  <ReviewCard r={r} i={i} onNavigate={onNavigate}/>
-                  {isOwnProfile && (
-                    <div style={{ position:"absolute", top:12, right:12, display:"flex", gap:6 }}>
-                      <button onClick={()=>setEditingReview(r)}
-                        style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, padding:"4px 10px", fontSize:11, color:T.textSub, cursor:"pointer" }}>
-                        Editar
-                      </button>
-                      <button onClick={()=>deleteReview(r.id)}
-                        style={{ background:`${T.like}18`, border:`1px solid ${T.like}44`, borderRadius:8, padding:"4px 10px", fontSize:11, color:T.like, cursor:"pointer" }}>
-                        Borrar
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
+              : <ProfileReviewSearch reviews={reviews} onNavigate={onNavigate} isOwnProfile={isOwnProfile} onEdit={setEditingReview} onDelete={deleteReview}/>
           )}
           {tab==="favoritos" && (
             favorites.length===0
@@ -2711,6 +2724,151 @@ function ProfileStats({ reviews }) {
   );
 }
 
+// ─── GENRE CHIPS ─────────────────────────────────────────────────────────────
+function GenreChips({ onNavigate }) {
+  const GENRES = [
+    { label:"🎸 Rock", tag:"rock" }, { label:"🎤 Pop", tag:"pop" }, { label:"🎷 Jazz", tag:"jazz" },
+    { label:"🎧 Hip-Hop", tag:"hip-hop" }, { label:"⚡ Electrónica", tag:"electronica" },
+    { label:"🌿 Indie", tag:"indie" }, { label:"🤘 Metal", tag:"metal" }, { label:"🎻 Clásica", tag:"clasica" },
+    { label:"🌴 Reggae", tag:"reggae" }, { label:"🪕 Folk", tag:"folk" },
+    { label:"💜 Soul", tag:"soul" }, { label:"🌊 Ambient", tag:"ambient" },
+  ];
+  return (
+    <div>
+      <div style={{ fontSize:11, fontWeight:700, color:T.textMute, letterSpacing:0.5, marginBottom:10 }}>EXPLORAR POR GÉNERO</div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+        {GENRES.map(g => (
+          <button key={g.tag} onClick={()=>onNavigate("tag", g.tag)}
+            style={{ fontSize:13, fontWeight:600, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:20, padding:"8px 16px", cursor:"pointer", transition:"all 0.15s" }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.color=T.accent; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor=T.border; e.currentTarget.style.color=T.text; }}>
+            {g.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── TRENDING ────────────────────────────────────────────────────────────────
+function TrendingSection({ onNavigate }) {
+  const [trending, setTrending] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const weekAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+    supabase.from("feed_reviews").select("album_id,album_title,artist,cover_url,year")
+      .gte("created_at", weekAgo).limit(100)
+      .then(({data}) => {
+        const counts = {};
+        const meta = {};
+        (data||[]).forEach(r => { counts[r.album_id]=(counts[r.album_id]||0)+1; meta[r.album_id]=r; });
+        const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([id,n])=>({...meta[id],count:n}));
+        setTrending(top); setLoading(false);
+      });
+  }, []);
+
+  if (loading || trending.length===0) return null;
+
+  return (
+    <div style={{ marginTop:20 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:T.textMute, letterSpacing:0.5, marginBottom:10 }}>🔥 TRENDING ESTA SEMANA</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+        {trending.map((a,i) => {
+          const ac = accentFor(a.album_id);
+          return (
+            <div key={a.album_id} onClick={()=>onNavigate("album",a.album_id)}
+              style={{ display:"flex", gap:12, alignItems:"center", background:T.surface, borderRadius:12, padding:"10px 12px", border:`1px solid ${T.border}`, cursor:"pointer", transition:"border-color 0.15s", animation:`fadeUp 0.3s ease ${i*0.05}s both` }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=T.textMute}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+              <div style={{ fontSize:16, fontWeight:800, color:T.textMute, width:20, flexShrink:0, textAlign:"center" }}>{i+1}</div>
+              <AlbumCover src={a.cover_url} ac={ac} size={44}/>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{a.album_title}</div>
+                <div style={{ fontSize:11, color:T.textSub }}>{a.artist}</div>
+              </div>
+              <div style={{ fontSize:11, color:T.accent, fontWeight:700, flexShrink:0 }}>{a.count} reseña{a.count!==1?"s":""}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── ONBOARDING ───────────────────────────────────────────────────────────────
+function OnboardingModal({ onDone }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { emoji:"🎵", title:"Bienvenido a Aftertrack", desc:"Tu diario musical personal. Reseñá álbumes, seguí amigos y descubrí música nueva." },
+    { emoji:"⭐", title:"Calificá con medias estrellas", desc:"Puntuá del 0.5 al 5 con precisión. Podés reseñar el álbum completo o canción por canción." },
+    { emoji:"🏷️", title:"Etiquetá con géneros", desc:"Agregá tags como rock, jazz o indie a tus reseñas para que otros puedan descubrirlas." },
+    { emoji:"👥", title:"Seguí a tus amigos", desc:"El feed muestra lo que escuchan las personas que seguís. Buscalos por username." },
+  ];
+  const s = steps[step];
+  const isLast = step === steps.length - 1;
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:500, backdropFilter:"blur(12px)", padding:24 }}>
+      <div style={{ background:T.surface, borderRadius:24, padding:"36px 28px", width:"100%", maxWidth:380, border:`1px solid ${T.border}`, textAlign:"center", animation:"fadeUp 0.3s ease" }}>
+        <div style={{ fontSize:56, marginBottom:16 }}>{s.emoji}</div>
+        <div style={{ fontSize:20, fontWeight:800, color:T.text, marginBottom:10 }}>{s.title}</div>
+        <div style={{ fontSize:14, color:T.textSub, lineHeight:1.7, marginBottom:28 }}>{s.desc}</div>
+        {/* Step dots */}
+        <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:24 }}>
+          {steps.map((_,i) => (
+            <div key={i} style={{ width:i===step?20:6, height:6, borderRadius:3, background:i===step?T.accent:T.border, transition:"all 0.3s" }}/>
+          ))}
+        </div>
+        <button onClick={()=>{ if(isLast) onDone(); else setStep(s=>s+1); }}
+          style={{ width:"100%", padding:"13px", background:`linear-gradient(135deg,${T.accent},${T.accent2})`, border:"none", borderRadius:14, color:"#fff", fontSize:15, fontWeight:700, cursor:"pointer" }}>
+          {isLast ? "¡Empezar!" : "Siguiente →"}
+        </button>
+        {!isLast && (
+          <button onClick={onDone} style={{ background:"none", border:"none", color:T.textMute, fontSize:13, cursor:"pointer", marginTop:12, display:"block", margin:"12px auto 0" }}>
+            Saltar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PROFILE SEARCH ───────────────────────────────────────────────────────────
+function ProfileReviewSearch({ reviews, onNavigate, isOwnProfile, onEdit, onDelete }) {
+  const [q, setQ] = useState("");
+  const filtered = q.trim().length > 0
+    ? reviews.filter(r => r.album_title?.toLowerCase().includes(q.toLowerCase()) || r.artist?.toLowerCase().includes(q.toLowerCase()))
+    : reviews;
+
+  return (
+    <div>
+      <div style={{ position:"relative", marginBottom:12 }}>
+        <svg style={{ position:"absolute", left:11, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textMute} strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Buscar en tus reseñas..."
+          style={{ width:"100%", padding:"9px 12px 9px 34px", background:T.surface2, border:`1.5px solid ${T.border}`, borderRadius:10, fontSize:13, color:T.text, outline:"none", fontFamily:"inherit" }}
+          onFocus={e=>e.target.style.borderColor=T.accent} onBlur={e=>e.target.style.borderColor=T.border}/>
+      </div>
+      {filtered.length===0 ? (
+        <div style={{ textAlign:"center", padding:"32px 0", color:T.textMute }}>
+          <div style={{ fontSize:24, marginBottom:6 }}>🔍</div>
+          <div style={{ fontSize:13 }}>Sin resultados para "{q}"</div>
+        </div>
+      ) : filtered.map((r,i) => (
+        <div key={r.id} style={{ position:"relative" }}>
+          <ReviewCard r={r} i={i} onNavigate={onNavigate}/>
+          {isOwnProfile && (
+            <div style={{ position:"absolute", top:12, right:12, display:"flex", gap:6 }}>
+              <button onClick={()=>onEdit(r)} style={{ background:T.surface2, border:`1px solid ${T.border}`, borderRadius:8, padding:"4px 10px", fontSize:11, color:T.textSub, cursor:"pointer" }}>Editar</button>
+              <button onClick={()=>onDelete(r.id)} style={{ background:`${T.like}18`, border:`1px solid ${T.like}44`, borderRadius:8, padding:"4px 10px", fontSize:11, color:T.like, cursor:"pointer" }}>Borrar</button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function Aftertrack() {
   const [session, setSession] = useState(null);
@@ -2719,6 +2877,18 @@ export default function Aftertrack() {
   const [page, setPage] = useState({ name:"feed", data:null });
   const [modal, setModal] = useState(false);
   const [feedKey, setFeedKey] = useState(0);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("aftertrack_onboarded")) setShowOnboarding(true);
+    } catch {}
+  }, []);
+
+  const finishOnboarding = () => {
+    try { localStorage.setItem("aftertrack_onboarded","1"); } catch {}
+    setShowOnboarding(false);
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); setUser(session?.user||null); setLoading(false); });
@@ -2763,6 +2933,7 @@ export default function Aftertrack() {
 
       {!["album","list","autolist","userprofile","artist","tag"].includes(page.name) && <BottomNav current={page.name} onNavigate={navigate}/>}
       {modal && <WriteModal onClose={()=>setModal(false)} onAdd={()=>{ setModal(false); navigate("feed"); setFeedKey(k=>k+1); }}/>}
+      {showOnboarding && <OnboardingModal onDone={finishOnboarding}/>}
     </>
   );
 }
